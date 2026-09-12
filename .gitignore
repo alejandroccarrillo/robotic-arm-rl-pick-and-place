@@ -1,0 +1,10 @@
+venv/
+mujoco_menagerie/
+__pycache__/
+*.pyc
+*.mp4
+*.gif
+logs/
+runs/
+*.zip
+.DS_Store
