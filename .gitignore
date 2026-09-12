@@ -8,3 +8,5 @@ logs/
 runs/
 *.zip
 .DS_Store
+tensorboard_logs/
+modelos/
