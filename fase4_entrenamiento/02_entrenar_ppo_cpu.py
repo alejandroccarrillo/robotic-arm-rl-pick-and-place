@@ -17,8 +17,8 @@ from panda_pick_place_env import PandaPickPlaceEnv
 N_ENVS = 8
 TOTAL_TIMESTEPS = 500_000
 LOG_DIR = "./tensorboard_logs/"
-MODEL_SAVE_PATH = "./modelos/ppo_panda_v2"
-BEST_MODEL_DIR = "./modelos/best_v2/"
+MODEL_SAVE_PATH = "./modelos/ppo_panda_v3"
+BEST_MODEL_DIR = "./modelos/best_v3/"
 
 if __name__ == "__main__":
     env = make_vec_env(PandaPickPlaceEnv, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv)
