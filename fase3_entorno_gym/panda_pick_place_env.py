@@ -3,6 +3,9 @@ Fase 3: Entorno Gymnasium para la tarea de pick-and-place con el Panda.
 
 Envuelve la escena MuJoCo (fase2) y la funcion de recompensa (fase2)
 en la interfaz estandar de Gymnasium: reset() y step().
+
+Actualizado en Fase 4: deteccion de agarre real via contactos fisicos
+de MuJoCo (data.contact) en vez de proxies geometricos explotables.
 """
 import numpy as np
 import gymnasium as gym
@@ -11,23 +14,28 @@ import mujoco
 import sys
 import os
 
-# Permite importar recompensa.py desde fase2_definir_tarea sin duplicar codigo
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'fase2_definir_tarea'))
 from recompensa import calcular_recompensa
 
-# Postura de reposo verificada, tomada del keyframe "home" de panda.xml
+# Geoms de colision real de los dedos (contype=1), identificados en Fase 4
+# via inspeccion de model.geom_contype. Los geoms con contype=0 son solo
+# visuales y nunca generan contactos, se excluyen deliberadamente.
+LEFT_FINGER_COLLISION_GEOMS = frozenset(range(68, 74))   # 68-73
+RIGHT_FINGER_COLLISION_GEOMS = frozenset(range(76, 82))  # 76-81
+CUBE_GEOM_ID = 82
+
 HOME_QPOS_BRAZO = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853])
 HOME_QPOS_DEDOS = np.array([0.04, 0.04])
 HOME_CTRL = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853, 255], dtype=np.float64)
 
 CUBE_POS_INICIAL = np.array([0.5, 0.0, 0.02])
-CUBE_QUAT_INICIAL = np.array([1.0, 0.0, 0.0, 0.0])  # sin rotacion (w,x,y,z)
+CUBE_QUAT_INICIAL = np.array([1.0, 0.0, 0.0, 0.0])
 
-MAX_DELTA_BRAZO = 0.05    # radianes maximos de cambio por step() de Gymnasium
-MAX_DELTA_GRIPPER = 25.0  # unidades de ctrl (rango 0-255) maximas por step()
+MAX_DELTA_BRAZO = 0.05
+MAX_DELTA_GRIPPER = 25.0
 
-FRAME_SKIP = 5    # pasos de fisica (mj_step) por cada step() de Gymnasium
-MAX_STEPS = 300   # limite de steps de decision por episodio (truncamiento)
+FRAME_SKIP = 5
+MAX_STEPS = 300
 
 
 class PandaPickPlaceEnv(gym.Env):
@@ -46,11 +54,8 @@ class PandaPickPlaceEnv(gym.Env):
         self.cube_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, 'cube')
         self.target_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, 'target')
 
-        # Accion: 8 valores en [-1, 1], escalados internamente a deltas reales
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
 
-        # Observacion: qpos brazo(7) + ctrl gripper actual(1) + hand_pos(3) +
-        # cube_pos(3) + target_pos(3) + vector hand->cube(3) + vector cube->target(3) = 23
         obs_dim = 7 + 1 + 3 + 3 + 3 + 3 + 3
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32
@@ -60,6 +65,18 @@ class PandaPickPlaceEnv(gym.Env):
         self.render_mode = render_mode
         self.viewer = None
         self.step_count = 0
+        self.hubo_agarre = False
+
+    def _hay_contacto(self, finger_geoms, cube_geom):
+        """Recorre data.contact (contactos activos en el ultimo mj_step)
+        y comprueba si alguno involucra un geom del set de dedo dado y
+        el geom del cubo, en cualquier orden (geom1/geom2)."""
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            if (c.geom1 in finger_geoms and c.geom2 == cube_geom) or \
+               (c.geom2 in finger_geoms and c.geom1 == cube_geom):
+                return True
+        return False
 
     def _get_obs(self):
         hand_pos = self.data.xpos[self.hand_id].copy()
@@ -67,13 +84,13 @@ class PandaPickPlaceEnv(gym.Env):
         target_pos = self.data.site_xpos[self.target_id].copy()
 
         obs = np.concatenate([
-            self.data.qpos[0:7],           # angulos actuales del brazo
-            [self.current_ctrl[7]],        # estado actual del gripper
+            self.data.qpos[0:7],
+            [self.current_ctrl[7]],
             hand_pos,
             cube_pos,
             target_pos,
-            hand_pos - cube_pos,            # vector relativo mano->cubo
-            cube_pos - target_pos,          # vector relativo cubo->target
+            hand_pos - cube_pos,
+            cube_pos - target_pos,
         ]).astype(np.float32)
         return obs
 
@@ -94,6 +111,7 @@ class PandaPickPlaceEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
 
         self.step_count = 0
+        self.hubo_agarre = False
 
         obs = self._get_obs()
         info = {}
@@ -119,12 +137,19 @@ class PandaPickPlaceEnv(gym.Env):
 
         self.step_count += 1
 
+        contacto_izq = self._hay_contacto(LEFT_FINGER_COLLISION_GEOMS, CUBE_GEOM_ID)
+        contacto_der = self._hay_contacto(RIGHT_FINGER_COLLISION_GEOMS, CUBE_GEOM_ID)
+        agarre_real = contacto_izq and contacto_der
+
+        if agarre_real:
+            self.hubo_agarre = True
+
         hand_pos = self.data.xpos[self.hand_id]
         cube_pos = self.data.xpos[self.cube_id]
         target_pos = self.data.site_xpos[self.target_id]
 
         reward, terminated, info = calcular_recompensa(
-            hand_pos, cube_pos, target_pos, self.current_ctrl[7]
+            hand_pos, cube_pos, target_pos, agarre_real, self.hubo_agarre
         )
 
         truncated = self.step_count >= MAX_STEPS

@@ -1,60 +1,61 @@
 """
 Fase 2: Funcion de recompensa para la tarea de pick-and-place.
+Actualizada en Fase 4 tras detectar reward hacking (dos veces): el
+"grasping" ya NO se infiere de proxies geometricos (proximidad +
+estado del gripper, o altura del cubo), sino de contacto fisico real
+entre AMBOS dedos y el cubo simultaneamente, calculado en el entorno
+via data.contact de MuJoCo.
 
-Diseno: recompensa densa (no dispersa) para dar señal de gradiente
-desde el primer step, en vez de esperar a que el agente choque con
-el cubo por pura casualidad.
+Ademas, el EXITO exige que haya habido agarre real en ALGUN momento
+del episodio, no solo que el cubo termine cerca del target - esto
+cierra la puerta a que el agente empuje/arrastre/voltee el cubo hasta
+el target sin haberlo agarrado nunca.
 
 Componentes:
   1. -distancia(hand, cubo): incentiva acercar el efector final al cubo
-  2. bonus_grasping: recompensa extra si el gripper esta cerrado Y cerca del cubo
+  2. bonus_grasping: recompensa extra en cada step con agarre_real=True
   3. -peso * distancia(cubo, target): incentiva llevar el cubo al destino
-  4. bonus_exito: recompensa grande si el cubo llega al target (fin de episodio)
-  5. penalizacion_fallo: si el cubo sale del area de trabajo alcanzable (fin de episodio)
+  4. bonus_exito: SOLO si dist_cube_target < umbral Y hubo_agarre_alguna_vez=True
+  5. penalizacion_fallo: si el cubo sale del area de trabajo alcanzable
 """
 import numpy as np
 
-# Umbrales y pesos (ajustables durante el entrenamiento en Fase 4 si hace falta)
-UMBRAL_GRASPING = 0.05      # metros: "cerca del cubo" para contar como agarre
-UMBRAL_EXITO = 0.05         # metros: "cubo en el target"
-GRIPPER_CERRADO_MAX = 100   # valor de ctrl[7] por DEBAJO del cual se considera "cerrado" (255=abierto, confirmado empiricamente en Fase 1)
-LIMITE_AREA_TRABAJO = 1.0   # metros: distancia maxima del cubo al origen antes de dar por perdido el episodio
+UMBRAL_EXITO = 0.05
+LIMITE_AREA_TRABAJO = 1.0
 
-PESO_DISTANCIA_TARGET = 2.0  # esta parte de la tarea pesa mas que solo acercarse
+PESO_DISTANCIA_TARGET = 2.0
 BONUS_GRASPING = 0.5
 BONUS_EXITO = 10.0
 PENALIZACION_FALLO = -10.0
 
 
-def calcular_recompensa(hand_pos, cube_pos, target_pos, gripper_ctrl):
+def calcular_recompensa(hand_pos, cube_pos, target_pos, agarre_real, hubo_agarre_alguna_vez):
     """
-    Calcula la recompensa del step actual y si el episodio debe terminar.
-
     Args:
-        hand_pos: np.array (3,) posicion cartesiana del efector final
-        cube_pos: np.array (3,) posicion cartesiana del cubo
-        target_pos: np.array (3,) posicion cartesiana del target
-        gripper_ctrl: valor actual de data.ctrl[7] (0-255)
+        hand_pos, cube_pos, target_pos: np.array (3,)
+        agarre_real: bool, contacto fisico bilateral EN ESTE STEP
+        hubo_agarre_alguna_vez: bool, True si agarre_real fue True en
+            algun step anterior del episodio actual (se acumula en el
+            entorno, no aqui, porque esta funcion no mantiene estado)
 
     Returns:
         reward: float
-        terminated: bool (True si el episodio debe acabar, exito o fallo)
-        info: dict con detalles para debug
+        terminated: bool
+        info: dict
     """
     dist_hand_cube = np.linalg.norm(hand_pos - cube_pos)
     dist_cube_target = np.linalg.norm(cube_pos - target_pos)
-    dist_cube_origen = np.linalg.norm(cube_pos[:2])  # solo x,y: distancia horizontal
+    dist_cube_origen = np.linalg.norm(cube_pos[:2])
 
     reward = -dist_hand_cube
     reward -= PESO_DISTANCIA_TARGET * dist_cube_target
 
-    gripper_cerrado = gripper_ctrl < GRIPPER_CERRADO_MAX
-    grasping = dist_hand_cube < UMBRAL_GRASPING and gripper_cerrado
-    if grasping:
+    if agarre_real:
         reward += BONUS_GRASPING
 
     terminated = False
-    exito = dist_cube_target < UMBRAL_EXITO
+    cerca_del_target = dist_cube_target < UMBRAL_EXITO
+    exito = cerca_del_target and hubo_agarre_alguna_vez
     if exito:
         reward += BONUS_EXITO
         terminated = True
@@ -67,7 +68,7 @@ def calcular_recompensa(hand_pos, cube_pos, target_pos, gripper_ctrl):
     info = {
         'dist_hand_cube': dist_hand_cube,
         'dist_cube_target': dist_cube_target,
-        'grasping': grasping,
+        'grasping': agarre_real,
         'exito': exito,
         'fallo': fallo,
     }
