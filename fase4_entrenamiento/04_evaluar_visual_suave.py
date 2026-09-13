@@ -16,7 +16,7 @@ import numpy as np
 from stable_baselines3 import PPO
 from panda_pick_place_env import PandaPickPlaceEnv, FRAME_SKIP
 
-MODEL_PATH = "./modelos/best_v3/best_model.zip"
+MODEL_PATH = "./modelos/best_v4/best_model.zip"
 
 env = PandaPickPlaceEnv()
 model = PPO.load(MODEL_PATH)

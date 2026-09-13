@@ -24,7 +24,7 @@ UMBRAL_EXITO = 0.05
 LIMITE_AREA_TRABAJO = 1.0
 
 PESO_DISTANCIA_TARGET = 2.0
-BONUS_GRASPING = 0.5
+BONUS_GRASPING = 0.3   # bajado de 3.0 en v7: acumulado sobre 300 steps competia con BONUS_EXITO, incentivando "granjear" el agarre en vez de completar la tarea
 BONUS_EXITO = 10.0
 PENALIZACION_FALLO = -10.0
 

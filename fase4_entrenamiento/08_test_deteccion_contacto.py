@@ -29,7 +29,7 @@ def hay_contacto_dedo_cubo(data, finger_geoms, cube_geom):
     return False
 
 
-MODEL_PATH = "./modelos/best_v3/best_model.zip"
+MODEL_PATH = "./modelos/best_v7/best_model.zip"
 env = PandaPickPlaceEnv()
 model = PPO.load(MODEL_PATH)
 

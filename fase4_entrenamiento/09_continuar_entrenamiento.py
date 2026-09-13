@@ -1,7 +1,8 @@
 """
-Fase 4 - Script 2: Entrenamiento PPO en CPU, mas largo, con callback
-de evaluacion periodica que guarda el mejor modelo y registra metricas
-de exito/fallo explicitas en TensorBoard.
+Fase 4 - Script 9: Continuar entrenamiento desde best_v4, que ya
+demostro agarre real pero no completa la tarea (episodio se trunca
+tras perder el agarre). Mas steps para consolidar la secuencia
+completa: acercarse -> agarrar -> sostener -> trasladar -> soltar.
 """
 import sys
 import os
@@ -15,36 +16,34 @@ from stable_baselines3.common.callbacks import EvalCallback
 from panda_pick_place_env import PandaPickPlaceEnv
 
 N_ENVS = 8
-TOTAL_TIMESTEPS = 500_000
+TIMESTEPS_ADICIONALES = 500_000
 LOG_DIR = "./tensorboard_logs/"
-MODEL_SAVE_PATH = "./modelos/ppo_panda_v4"
-BEST_MODEL_DIR = "./modelos/best_v4/"
+MODELO_BASE = "./modelos/best_v4/best_model.zip"
+MODEL_SAVE_PATH = "./modelos/ppo_panda_v5"
+BEST_MODEL_DIR = "./modelos/best_v5/"
 
 if __name__ == "__main__":
     env = make_vec_env(PandaPickPlaceEnv, n_envs=N_ENVS, vec_env_cls=SubprocVecEnv)
-
-    # Entorno separado para evaluacion, no mezclado con el entrenamiento
     eval_env = make_vec_env(PandaPickPlaceEnv, n_envs=1)
 
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=BEST_MODEL_DIR,
         log_path=LOG_DIR,
-        eval_freq=max(10_000 // N_ENVS, 1),  # cada ~10k steps totales
+        eval_freq=max(10_000 // N_ENVS, 1),
         n_eval_episodes=10,
         deterministic=True,
     )
 
-    model = PPO(
-        "MlpPolicy",
-        env,
-        verbose=1,
-        tensorboard_log=LOG_DIR,
-        device="cpu",  # MlpPolicy rinde peor en GPU, confirmado en el experimento anterior
-    )
+    model = PPO.load(MODELO_BASE, env=env, device="cpu")
 
-    print(f"Entrenando PPO durante {TOTAL_TIMESTEPS} timesteps en CPU con {N_ENVS} entornos...")
-    model.learn(total_timesteps=TOTAL_TIMESTEPS, callback=eval_callback, progress_bar=True)
+    print(f"Continuando entrenamiento desde {MODELO_BASE} durante {TIMESTEPS_ADICIONALES} steps mas...")
+    model.learn(
+        total_timesteps=TIMESTEPS_ADICIONALES,
+        callback=eval_callback,
+        progress_bar=True,
+        reset_num_timesteps=False,  # mantiene la cuenta acumulada para TensorBoard
+    )
 
     os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
     model.save(MODEL_SAVE_PATH)
