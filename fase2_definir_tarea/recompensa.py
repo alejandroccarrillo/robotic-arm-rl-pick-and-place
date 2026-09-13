@@ -17,7 +17,7 @@ import numpy as np
 # Umbrales y pesos (ajustables durante el entrenamiento en Fase 4 si hace falta)
 UMBRAL_GRASPING = 0.05      # metros: "cerca del cubo" para contar como agarre
 UMBRAL_EXITO = 0.05         # metros: "cubo en el target"
-GRIPPER_CERRADO_MIN = 100   # valor de ctrl[7] (rango 0-255) a partir del cual se considera "cerrado"
+GRIPPER_CERRADO_MAX = 100   # valor de ctrl[7] por DEBAJO del cual se considera "cerrado" (255=abierto, confirmado empiricamente en Fase 1)
 LIMITE_AREA_TRABAJO = 1.0   # metros: distancia maxima del cubo al origen antes de dar por perdido el episodio
 
 PESO_DISTANCIA_TARGET = 2.0  # esta parte de la tarea pesa mas que solo acercarse
@@ -48,7 +48,7 @@ def calcular_recompensa(hand_pos, cube_pos, target_pos, gripper_ctrl):
     reward = -dist_hand_cube
     reward -= PESO_DISTANCIA_TARGET * dist_cube_target
 
-    gripper_cerrado = gripper_ctrl > GRIPPER_CERRADO_MIN
+    gripper_cerrado = gripper_ctrl < GRIPPER_CERRADO_MAX
     grasping = dist_hand_cube < UMBRAL_GRASPING and gripper_cerrado
     if grasping:
         reward += BONUS_GRASPING
